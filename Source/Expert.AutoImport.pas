@@ -310,7 +310,15 @@ type
 function FindRemovablePrivate(const AContent: string; ADeclLine0: Integer;
   const AName: string; out AInfo: TPrivateMember): Boolean;
 
-/// <summary>Content with AInfo's declaration AND implementation removed.</summary>
+/// <summary>The first line of the XML doc comment block directly above
+///  ALine0 - ALine0 itself when there is none. A '///' block documents
+///  what FOLLOWS it, so whatever removes a declaration takes it along:
+///  safe delete always did, the quick fix left it behind pointing at
+///  nothing (forum #225).</summary>
+function DocCommentStart(const ALines: TArray<string>; ALine0: Integer): Integer;
+
+/// <summary>Content with AInfo's declaration AND implementation removed -
+///  each with the doc comment block above it.</summary>
 function RemovePrivateMemberText(const AContent: string;
   const AInfo: TPrivateMember): string;
 
@@ -3437,22 +3445,34 @@ begin
   Result := False;
 end;
 
+function DocCommentStart(const ALines: TArray<string>; ALine0: Integer): Integer;
+begin
+  Result := ALine0;
+  if (ALine0 < 0) or (ALine0 > High(ALines)) then Exit;
+  while (Result > 0) and Trim(ALines[Result - 1]).StartsWith('///') do
+    Dec(Result);
+end;
+
 function RemovePrivateMemberText(const AContent: string;
   const AInfo: TPrivateMember): string;
 var
   Lines: TArray<string>;
   SL: TStringList;
-  I: Integer;
+  I, DeclFrom, ImplFrom: Integer;
 begin
   Result := AContent;
   Lines := SplitContentLines(AContent);
   if (AInfo.DeclLine < 0) or (AInfo.DeclLine > High(Lines)) then Exit;
+  // the documentation of what goes, goes with it (forum #225)
+  DeclFrom := DocCommentStart(Lines, AInfo.DeclLine);
+  ImplFrom := AInfo.ImplFirst;
+  if ImplFrom >= 0 then ImplFrom := DocCommentStart(Lines, ImplFrom);
   SL := TStringList.Create;
   try
     for I := 0 to High(Lines) do
     begin
-      if I = AInfo.DeclLine then Continue;
-      if (AInfo.ImplFirst >= 0) and (I >= AInfo.ImplFirst)
+      if (I >= DeclFrom) and (I <= AInfo.DeclLine) then Continue;
+      if (AInfo.ImplFirst >= 0) and (I >= ImplFrom)
         and (I <= AInfo.ImplLast) then Continue;
       // A blank line directly after the removed implementation would
       // otherwise pile up.

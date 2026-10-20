@@ -6,6 +6,19 @@ development builds and were never released.
 
 ---
 
+## 2.6.4 - 2026-10-21
+
+### "Remove unused private ..." takes the XMLDOC with it
+
+Suggested in the forum: the quick fix removed the declaration and the
+implementation of an unused private member and left the `///` comments
+above them behind, documenting nothing. A `///` block describes what
+follows it, so it goes with it - above the declaration and above the body.
+Safe delete has always done this; it is one rule in one place now, and
+both ask it.
+
+---
+
 ## 2.6.3 - 2026-10-21
 
 ### Extract Method keeps a type that is written out in place

@@ -632,8 +632,9 @@ procedure AddEdit(var ASym: TSafeDeleteSymbol; AFirst, ALast: Integer;
 var
   E: TSafeDeleteEdit;
 begin
-  // XML doc comments directly above belong to the declaration
-  while (AFirst > 0) and Trim(ALines[AFirst - 1]).StartsWith('///') do Dec(AFirst);
+  // XML doc comments directly above belong to the declaration - one rule,
+  // in the unit the quick fix can reach too (forum #225)
+  AFirst := DocCommentStart(ALines, AFirst);
   // no double blank line left behind
   if (AFirst > 0) and (ALast < High(ALines)) and (Trim(ALines[AFirst - 1]) = '')
     and (Trim(ALines[ALast + 1]) = '') then

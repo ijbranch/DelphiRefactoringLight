@@ -444,6 +444,10 @@ type
     [Test] procedure RemoveLastVar_TakesTheVarKeywordLineAlong;
     [Test] procedure DeclareVar_GoesBeforeBeginAndAddsItsUnit;
     [Test] procedure GeneratingKinds_HaveNoTextPreview;
+    /// <summary>Forum #225: "Remove unused private ..." took the
+    ///  declaration and the body and left the XMLDOC above them behind,
+    ///  documenting nothing.</summary>
+    [Test] procedure RemovePrivate_TakesTheDocCommentAlong;
   end;
 
   /// <summary>Issue #20: the uses cleanup offered units for removal that the
@@ -3423,6 +3427,57 @@ begin
   Assert.IsTrue(PlanQuickFixText(Src, F, 0, NewText));
   Assert.IsTrue(Pos('  Q: TStringList;'#13#10'begin', NewText) > 0, 'declared before begin');
   Assert.IsTrue(Pos('System.Classes', NewText) > 0, 'the unit comes with it');
+end;
+
+procedure TQuickFixPreviewTests.RemovePrivate_TakesTheDocCommentAlong;
+const
+  Src =
+    'unit U;'#13#10 +                                        // 0
+    'interface'#13#10 +                                      // 1
+    'type'#13#10 +                                           // 2
+    '  TFoo = class'#13#10 +                                 // 3
+    '  private'#13#10 +                                      // 4
+    '    /// <summary>Kept: it documents Other.</summary>'#13#10 +  // 5
+    '    procedure Other;'#13#10 +                           // 6
+    '    /// <summary>What Bar does.</summary>'#13#10 +      // 7
+    '    /// <remarks>Over two lines.</remarks>'#13#10 +     // 8
+    '    procedure Bar;'#13#10 +                             // 9
+    '  end;'#13#10 +                                         // 10
+    'implementation'#13#10 +                                 // 11
+    '/// <summary>The body of Bar.</summary>'#13#10 +        // 12
+    'procedure TFoo.Bar;'#13#10 +                            // 13
+    'begin'#13#10 +                                          // 14
+    'end;'#13#10 +                                           // 15
+    'procedure TFoo.Other;'#13#10 +                          // 16
+    'begin'#13#10 +                                          // 17
+    'end;'#13#10 +                                           // 18
+    'end.'#13#10;
+var
+  Info: TPrivateMember;
+begin
+  Assert.IsTrue(FindRemovablePrivate(Src, 9, 'Bar', Info), 'Bar is removable');
+  var After := RemovePrivateMemberText(Src, Info);
+
+  Assert.IsFalse(After.Contains('What Bar does'),
+    'the doc of the declaration goes with it');
+  Assert.IsFalse(After.Contains('Over two lines'),
+    'the whole block, not just its last line');
+  Assert.IsFalse(After.Contains('The body of Bar'),
+    'and the doc above the implementation too');
+  Assert.IsFalse(After.Contains('procedure Bar;'), 'the declaration itself');
+  Assert.IsFalse(After.Contains('procedure TFoo.Bar;'), 'and its body');
+
+  // ...and nothing that belongs to the member next door
+  Assert.IsTrue(After.Contains('it documents Other'),
+    'the doc of the OTHER member stays');
+  Assert.IsTrue(After.Contains('procedure Other;'), 'and so does it');
+  Assert.IsTrue(After.Contains('procedure TFoo.Other;'), 'with its body');
+
+  // the rule on its own, including "there is none"
+  var L := SplitContentLines(Src);
+  Assert.AreEqual(7, DocCommentStart(L, 9), 'two doc lines above the declaration');
+  Assert.AreEqual(16, DocCommentStart(L, 16), 'a member without one is itself');
+  Assert.AreEqual(0, DocCommentStart(L, 0), 'the first line has nothing above it');
 end;
 
 procedure TQuickFixPreviewTests.GeneratingKinds_HaveNoTextPreview;
