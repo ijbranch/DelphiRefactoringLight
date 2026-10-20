@@ -837,6 +837,11 @@ type
   TInstallOutputRootTests = class
   public
     [Test] procedure ABuildNeverWritesWhereItMayNot;
+    /// <summary>Forum #223: moving the three OUTPUTS was not enough -
+    ///  CodeGear.Delphi.Targets creates directories from properties they
+    ///  do not reach, so the build still died with MSB3191 on folders it
+    ///  never writes to. The ROOT has to move with them.</summary>
+    [Test] procedure TheBuildIsToldWhereItMayCreateDirectories;
     /// <summary>Installing over a file somebody is RUNNING. Windows
     ///  refuses to overwrite such a file but allows renaming it, and an
     ///  installer that does not know this reports success without
@@ -900,7 +905,7 @@ uses
   Expert.MoveToUnit, Expert.SafeDeletePlan, Expert.McpTools, Expert.WithRewriter,
   Expert.SemanticReplace, Expert.SelectionValidator, Expert.ExtractMethod,
   Expert.SignatureEdit, Expert.MethodEdit, System.StrUtils,
-  Expert.DebugConsistency, DIH.Placeholders, DIH.FileOps,
+  Expert.DebugConsistency, DIH.Placeholders, DIH.FileOps, DIH.Builder,
   // Generics.Collections: TJSONObject.GetPair is inline and the
   // doubled-note test calls it (H2443 without this entry).
   System.DateUtils, System.Generics.Collections;
@@ -7416,6 +7421,31 @@ begin
   finally
     TDirectory.Delete(Dir, True);
   end;
+end;
+
+procedure TInstallOutputRootTests.TheBuildIsToldWhereItMayCreateDirectories;
+begin
+  // The ordinary machine: the common directory is writable, the resolver
+  // leaves the root alone, and so does the command line.
+  var Cmd := MSBuildCommandLine('C:\p\X.dproj', 'Win32', 'Release',
+    'C:\o\dcu', 'C:\o\bpl', 'C:\o\dcp', 'C:\o\hpp', '', '');
+  Assert.IsTrue(Cmd.Contains('/tv:4.0'), 'the toolset is still named');
+  Assert.IsTrue(Cmd.Contains('/p:DCC_BplOutput="C:\o\bpl"'), 'the outputs');
+  Assert.IsFalse(Cmd.ToUpper.Contains('BDSCOMMONDIR'),
+    'nothing is moved while Delphi''s own common directory can be written');
+
+  // The forum machine: Delphi was installed by another account, the
+  // resolver moved the output root - and the build has to be told, or the
+  // targets file dies creating a Dcp and an hpp folder under the old one.
+  Cmd := MSBuildCommandLine('C:\p\X.dproj', 'Win64', 'Debug',
+    'C:\o\dcu', 'C:\o\bpl', 'C:\o\dcp', 'C:\o\hpp',
+    'C:\Users\me\AppData\Local\Embarcadero\Studio\37.0', '/v:d');
+  Assert.IsTrue(
+    Cmd.Contains('/p:BDSCOMMONDIR="C:\Users\me\AppData\Local\Embarcadero\Studio\37.0"'),
+    'the root the resolver chose: ' + Cmd);
+  Assert.IsTrue(Cmd.Contains('/p:DCC_BplOutput="C:\o\bpl"'),
+    'and the outputs still say where the artefacts really go');
+  Assert.IsTrue(Cmd.EndsWith('/v:d'), 'extra parameters stay at the end');
 end;
 
 procedure TInstallOutputRootTests.ABuildNeverWritesWhereItMayNot;

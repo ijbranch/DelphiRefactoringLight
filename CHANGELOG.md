@@ -6,6 +6,29 @@ development builds and were never released.
 
 ---
 
+## 2.6.5 - 2026-10-21
+
+### The install on a machine where Delphi belongs to another account
+
+Where Delphi was installed by a different user, its installer writes that
+user's Documents folder into `rsvars.bat` and the registry as the common
+directory - and msbuild then dies with `MSB3191` on folders the build never
+writes to. 1.25.3 moved the outputs (BPL, DCP, `.hpp`) away from there,
+which was not enough: `CodeGear.Delphi.Targets` also builds its
+"create these directories" list from `$(DelphiHPPOutputPath)` and a `Dcp`
+path of its own, which no `DCC_*` override reaches. Measured on both
+projects: two `MSB3191` survived.
+
+The ROOT moves with the outputs now - as an msbuild property, so the
+environment keeps Delphi's own value and the `bds.exe` fallback still finds
+the IDE's packages. For the helper that is built first this is
+unconditional (it produces an exe and writes none of those folders); for
+the entries of the install it happens only where this account really cannot
+write the common directory, i.e. exactly where the output root moved too.
+The artefacts still land where the explicit outputs say - measured.
+
+---
+
 ## 2.6.4 - 2026-10-21
 
 ### "Remove unused private ..." takes the XMLDOC with it
