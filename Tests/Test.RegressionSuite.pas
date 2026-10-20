@@ -606,6 +606,11 @@ type
     [Test] procedure AMethodNameMustBeAnIdentifier;
     [Test] procedure TheExpressionIsMatchedAsCode;
     [Test] procedure LinesAreSplitOnEveryLineBreakStyle;
+    /// <summary>Forum #224: a local "Handles: array[0..0] of THandle"
+    ///  arrived in the extracted method as "Handles: array;" - the type
+    ///  was read as ONE identifier after the colon. And what a local may
+    ///  be written as, a parameter may not.</summary>
+    [Test] procedure AWrittenOutTypeIsTheWholeType;
     /// <summary>Forum 2026-10-03: the generated CALL must stand where the
     ///  extracted code stood. The selection cannot say that - a drag that
     ///  starts at the first statement carries no leading whitespace, and
@@ -4912,6 +4917,45 @@ begin
   // An expression that is not an identifier keeps working.
   Assert.IsTrue(CodeOccurrenceOf('  X := A + B;', 'A + B', 0) > 0,
     'a composed expression');
+end;
+
+procedure TExtractAndCompletionTests.AWrittenOutTypeIsTheWholeType;
+begin
+  // The hovers DelphiLSP 37.0 really sends, measured 2026-10-21 - the
+  // reported one with its markdown link and code fence around it.
+  Assert.AreEqual('array [0..0] of UInt64',
+    TypeTextFromHover('[ExDemo.pas:18](file:///C%3A/x/ExDemo.pas#18)'#13#10#13#10 +
+      '```'#13#10'var Handles: array [0..0] of UInt64'#13#10'```'#13#10),
+    'the reported case - it used to arrive as "array"');
+  Assert.AreEqual('array of string', TypeTextFromHover('var Dyn: array of string'));
+  Assert.AreEqual('set of Byte', TypeTextFromHover('var Bytes: set of Byte'));
+  // the colon INSIDE the parameter list is not the one that separates
+  Assert.AreEqual('procedure(X: Integer) of object',
+    TypeTextFromHover('var Cb: procedure(X: Integer) of object'),
+    'a procedural type carries a colon of its own');
+  Assert.AreEqual('Integer', TypeTextFromHover('var Plain: Integer'),
+    'the ordinary case is unchanged');
+  Assert.AreEqual('TDictionary<string, Integer>',
+    TypeTextFromHover('var D: TDictionary<string, Integer>'), 'generics too');
+  Assert.AreEqual('Integer', TypeTextFromHover('const Max: Integer = 5'),
+    'a default value belongs to the declaration, not to the type');
+  Assert.AreEqual('', TypeTextFromHover('property TButton.OnClick'),
+    'no colon, no type');
+
+  // MEASURED with dcc32 37.0: only a NAMED type works as a parameter type.
+  Assert.IsTrue(TypeIsNamed('Integer'));
+  Assert.IsTrue(TypeIsNamed('System.UInt64'), 'dotted');
+  Assert.IsTrue(TypeIsNamed('TDictionary<string, Integer>'), 'generic');
+  Assert.IsFalse(TypeIsNamed('array [0..0] of UInt64'),
+    'E2029 in a parameter list - and that is the reported variable');
+  Assert.IsFalse(TypeIsNamed('array of string'),
+    'it compiles there, but as an OPEN array - SetLength on it is E2008');
+  Assert.IsFalse(TypeIsNamed('set of Byte'));
+  Assert.IsFalse(TypeIsNamed('string[20]'));
+  Assert.IsFalse(TypeIsNamed('^Integer'));
+  Assert.IsFalse(TypeIsNamed('procedure(X: Integer) of object'));
+  Assert.IsFalse(TypeIsNamed('record X: Integer; end'));
+  Assert.IsFalse(TypeIsNamed(''), 'nothing is no name');
 end;
 
 procedure TExtractAndCompletionTests.LinesAreSplitOnEveryLineBreakStyle;

@@ -6,6 +6,29 @@ development builds and were never released.
 
 ---
 
+## 2.6.3 - 2026-10-21
+
+### Extract Method keeps a type that is written out in place
+
+Reported in the forum: a local `Handles: array[0..0] of THandle` arrived in
+the extracted method as `Handles: array;`, which compiles nowhere. The type
+was read as the first identifier after the colon, so everything from the
+`[` or the ` of ` on was dropped - the same for `set of Byte`,
+`string[20]`, `^Integer` and `procedure(X: Integer) of object`. Both paths
+that determine a type had it: the DelphiLSP hover and the fallback that
+reads the declaration line when there is no hover.
+
+A local that MOVES into the new method keeps its type verbatim now. A
+variable the block SHARES with the code around it would become a
+parameter - and there such a type is not allowed at all (measured with
+dcc32: E2029). That case is refused with the reason and the way out
+(give the type a name) instead of generating something that does not
+compile. `array of T` is refused too: it is accepted in a parameter list,
+but as an OPEN array, which is no longer the dynamic array it came from -
+`SetLength` on it does not compile.
+
+---
+
 ## 2.6.2 - 2026-10-21
 
 ### A rename on a parameter stops waiting for an answer that cannot come

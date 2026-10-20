@@ -205,6 +205,27 @@ function CallIndentFor(const ABlockLines: TArray<string>;
 ///  and at both assignments). 'nd' / 'rray' / 'sm' have the same shape.</summary>
 function ExtractedParameterName(const ALocalName: string): string;
 
+/// <summary>The TYPE a hover describes: everything after its first colon
+///  at bracket depth 0, without a default value. The depth is what a
+///  procedural type needs - "var Cb: procedure(X: Integer) of object" has
+///  a second colon INSIDE the parameter list. MEASURED hover shapes
+///  (DelphiLSP 37.0, 2026-10-21): "var Handles: array [0..0] of UInt64",
+///  "var Dyn: array of string", "var Bytes: set of Byte". Reading only the
+///  identifier after the colon turned the first one into "array", which
+///  compiles nowhere (forum #224). '' when there is no colon.</summary>
+function TypeTextFromHover(const AHoverText: string): string;
+
+/// <summary>The type text NAMES a type ("Integer", "System.UInt64",
+///  "TDictionary&lt;string, Integer&gt;") instead of writing one out in
+///  place ("array [0..0] of UInt64", "set of Byte", "string[20]",
+///  "^Integer", "procedure(...) of object"). MEASURED with dcc32 37.0: a
+///  written-out type is fine for a local VARIABLE - which is why a moved
+///  local keeps its text verbatim - and is E2029 in a parameter list. An
+///  open array ("array of T") does compile there, but it is an OPEN array
+///  and no longer the dynamic array it came from (SetLength on it is
+///  E2008), so it does not count as named either.</summary>
+function TypeIsNamed(const ATypeText: string): Boolean;
+
 function PlanLocalVarRemoval(const AFileLines: TArray<string>; AHeaderLine: Integer;
   const ANames: TArray<string>): TArray<TPair<Integer, string>>;
 
@@ -396,13 +417,100 @@ begin
   if Pos(': ', AHoverText) > 0 then Exit(skVariable);
 end;
 
-class function TExtractMethodHelper.ExtractTypeFromHover(const AHoverText: string): string;
+function TypeTextFromHover(const AHoverText: string): string;
+var
+  Depth, I, Cut: Integer;
 begin
   Result := '';
   if AHoverText = '' then Exit;
-  var M := TRegEx.Match(AHoverText, ':\s*([A-Za-z_][\w.]*(?:<[^>]+>)?)');
-  if M.Success and (M.Groups.Count > 1) then
-    Result := M.Groups[1].Value;
+  var S := AHoverText;
+  // The hover carries a markdown link and a ``` fence around the
+  // declaration; the fence is the part that describes the symbol, and the
+  // link holds a colon of its own ("ExDemo.pas:18").
+  var F1 := Pos('```', S);
+  if F1 > 0 then
+  begin
+    S := Copy(S, F1 + 3, MaxInt);
+    var F2 := Pos('```', S);
+    if F2 > 0 then S := Copy(S, 1, F2 - 1);
+  end;
+  S := Trim(S.Replace(#13#10, ' ').Replace(#10, ' ').Replace(#13, ' '));
+
+  Depth := 0;
+  Cut := 0;
+  for I := 1 to Length(S) do
+  begin
+    case S[I] of
+      '(', '[', '<': Inc(Depth);
+      ')', ']', '>': if Depth > 0 then Dec(Depth);
+      ':':
+        if (Depth = 0) and ((I = Length(S)) or (S[I + 1] <> '=')) then
+        begin
+          Cut := I;
+          Break;
+        end;
+    end;
+  end;
+  if Cut = 0 then Exit;
+  S := Copy(S, Cut + 1, MaxInt);
+
+  // a default value belongs to the declaration, not to the type
+  Depth := 0;
+  for I := 1 to Length(S) do
+  begin
+    case S[I] of
+      '(', '[', '<': Inc(Depth);
+      ')', ']', '>': if Depth > 0 then Dec(Depth);
+      '=':
+        if Depth = 0 then
+        begin
+          S := Copy(S, 1, I - 1);
+          Break;
+        end;
+    end;
+  end;
+  Result := Trim(S);
+  while (Result <> '') and (Result[Length(Result)] = ';') do
+    Result := Trim(Copy(Result, 1, Length(Result) - 1));
+end;
+
+function TypeIsNamed(const ATypeText: string): Boolean;
+var
+  I, Depth: Integer;
+begin
+  Result := False;
+  var S := Trim(ATypeText);
+  if S = '' then Exit;
+  if not CharInSet(S[1], ['A'..'Z', 'a'..'z', '_']) then Exit;
+  I := 1;
+  while (I <= Length(S)) and
+        CharInSet(S[I], ['A'..'Z', 'a'..'z', '0'..'9', '_', '.']) do
+    Inc(I);
+  if I > Length(S) then Exit(True);       // a plain (dotted) name
+  if S[I] <> '<' then Exit;               // "array of ...", "set of ..."
+  Depth := 0;                             // generic arguments close it
+  while I <= Length(S) do
+  begin
+    if S[I] = '<' then
+      Inc(Depth)
+    else if S[I] = '>' then
+    begin
+      Dec(Depth);
+      if Depth = 0 then
+      begin
+        Inc(I);
+        Break;
+      end;
+    end;
+    Inc(I);
+  end;
+  Result := (Depth = 0) and (Trim(Copy(S, I, MaxInt)) = '');
+end;
+
+class function TExtractMethodHelper.ExtractTypeFromHover(const AHoverText: string): string;
+begin
+  // the WHOLE type, not the first identifier of it (forum #224)
+  Result := TypeTextFromHover(AHoverText);
 end;
 
 /// <summary>Synthesizes a hover-like string from a declaration line +
@@ -472,31 +580,35 @@ function SynthesizeHoverFromDeclLine(const ADeclLine, AIdent: string): string;
     if (I > N) or (ALine[I] <> ':') then Exit;
     Inc(I); // skip ':'
     while (I <= N) and CharInSet(ALine[I], [' ', #9]) do Inc(I);
-    if (I > N) or not IsIdStart(ALine[I]) then Exit;
+    if I > N then Exit;
     TypeStart := I;
-    // Read type ident, allow dotted names and angle-bracket generics.
+    // The WHOLE type, up to where THIS declaration ends: the ';' of the
+    // next parameter or var line, the ')' that closes the list, or a
+    // default value. Not just an identifier - "array [0..0] of THandle",
+    // "set of Byte", "string[20]", "^Integer" and "procedure(X: Integer)
+    // of object" are types too, and a moved local keeps them verbatim
+    // (forum #224: the type arrived as "array" alone). Same rule as
+    // TypeTextFromHover, for the path where DelphiLSP has no hover.
+    Depth := 0;
     while I <= N do
     begin
-      if IsIdCh(ALine[I]) or (ALine[I] = '.') then
-        Inc(I)
-      else if ALine[I] = '<' then
-      begin
-        // Skip to matching '>'.
-        var GD := 1;
-        Inc(I);
-        while (I <= N) and (GD > 0) do
-        begin
-          if ALine[I] = '<' then Inc(GD)
-          else if ALine[I] = '>' then Dec(GD);
-          Inc(I);
-        end;
-      end
-      else
-        Break;
+      case ALine[I] of
+        '(', '[', '<': Inc(Depth);
+        ')':
+          begin
+            if Depth = 0 then Break;
+            Dec(Depth);
+          end;
+        ']', '>': if Depth > 0 then Dec(Depth);
+        ';', '=': if Depth = 0 then Break;
+      end;
+      Inc(I);
     end;
     TypeEnd := I - 1;
+    var Cmt := Pos('//', Copy(ALine, TypeStart, TypeEnd - TypeStart + 1));
+    if Cmt > 0 then TypeEnd := TypeStart + Cmt - 2;
     if TypeEnd >= TypeStart then
-      Result := Copy(ALine, TypeStart, TypeEnd - TypeStart + 1);
+      Result := Trim(Copy(ALine, TypeStart, TypeEnd - TypeStart + 1));
   end;
 
 var
@@ -1353,6 +1465,31 @@ begin
     end;
     AInfo.Params := PL.ToArray;
     AInfo.LocalVars := LVL.ToArray;
+
+    // A PARAMETER type must be a named one. Everything a declaration can
+    // write out in place is legal for a local variable - those MOVE into
+    // the new routine and keep their text - and is E2029 in a parameter
+    // list; measured with dcc32 37.0. "array of T" compiles there but
+    // means an OPEN array, not the dynamic array it came from, so it is
+    // refused as well instead of silently changing what the code does.
+    for var PIdx := 0 to High(AInfo.Params) do
+      if (AInfo.Params[PIdx].TypeName <> '') and
+         not TypeIsNamed(AInfo.Params[PIdx].TypeName) then
+      begin
+        var Why := 'which Delphi does not allow in a parameter list';
+        if AInfo.Params[PIdx].TypeName.ToLower.StartsWith('array of ') then
+          Why := 'and "array of ..." as a parameter is an OPEN array, no ' +
+            'longer the dynamic array it came from';
+        AInfo.Blocker := Format('the block shares "%s" with the code around ' +
+          'it, so it would become a parameter - and its type is written out ' +
+          'in place ("%s"), %s. Give that type a name (a "type" declaration) ' +
+          'and use it in the variable, then extract again - or select a ' +
+          'block that does not share "%s".',
+          [AInfo.Params[PIdx].Name, AInfo.Params[PIdx].TypeName, Why,
+           AInfo.Params[PIdx].Name]);
+        AInfo.DiagLog := AInfo.DiagLog + '  -> REFUSED: ' + AInfo.Blocker + sLineBreak;
+        Exit(False);
+      end;
 
     // Promote the first var-parameter (pmVar) to the function's Result:
     // when a value is assigned inside the block and read afterwards, it is
