@@ -1105,7 +1105,30 @@ begin
     // it cannot be started this IS the main client.
     VClient := TLspManager.Instance.VerificationClient(Client, RootPath,
       FContext.ProjectFile, DelphiLspJson);
-    if VClient <> Client then
+    // A PARAMETER position is never answered by DelphiLSP: a parameter IS
+    // declared there, and the server answers null at a declaration.
+    // MEASURED 2026-10-21 on a warm session that resolves a USE of the same
+    // parameter two lines further down - both headers answered nothing.
+    // The probe below asks BOTH sessions for the declaration to find out
+    // which one can answer, so for such a caret it can only ever end in its
+    // own timeout (82 s on this project) and leave everything as it is -
+    // which is exactly the state skipping it reaches, 82 s earlier.
+    // Deliberately only the parameter: a caret on a method DECLARATION is
+    // answered when it overrides one, and that answer (the ancestor) is
+    // what makes the rename reach the whole family.
+    var CaretOnParameter := False;
+    begin
+      var CaretText: string;
+      if EditorOrDiskReader()(FContext.FileName, CaretText) then
+        CaretOnParameter := HeaderDeclaresParameter(
+          CaretText.Replace(#13#10, #10).Split([#10]),
+          FContext.Line - 1, FContext.WordAtCursor);
+      if CaretOnParameter then
+        FDiagLog := FDiagLog + 'The caret is on a PARAMETER - DelphiLSP ' +
+          'answers nothing at one, so the declaration probe is skipped: it ' +
+          'could only run into its own timeout.' + sLineBreak;
+    end;
+    if (VClient <> Client) and not CaretOnParameter then
     begin
       // otherwise it would read the start file from DISK
       var StartContent: string;

@@ -6,6 +6,27 @@ development builds and were never released.
 
 ---
 
+## 2.6.2 - 2026-10-21
+
+### A rename on a parameter stops waiting for an answer that cannot come
+
+Starting a rename on a parameter in a declaration works since 2.6.1 - after
+82 seconds of nothing. Before the scan, the rename asks BOTH DelphiLSP
+sessions for the symbol's declaration, to find out which of the two can
+answer at all; a freshly started agent session answers everything with null
+and nothing else can tell them apart. For a parameter neither one ever
+answers, because a parameter is declared at that very position and the
+server says nothing at a declaration - measured on a warm session that
+resolves a use of the same parameter two lines further down. So that probe
+could only ever end in its own timeout, and the scan then continues exactly
+as it does when the probe is skipped. It is skipped now.
+
+Only for a parameter: a caret on a method declaration IS answered when that
+method overrides one, and that answer - the ancestor - is what makes the
+rename reach the whole family.
+
+---
+
 ## 2.6.1 - 2026-10-20
 
 ### Renaming a parameter changes both of its declarations (issue #49)
