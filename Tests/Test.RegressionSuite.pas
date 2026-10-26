@@ -3485,6 +3485,28 @@ begin
   Assert.IsTrue(After.Contains('procedure Other;'), 'and so does it');
   Assert.IsTrue(After.Contains('procedure TFoo.Other;'), 'with its body');
 
+  // MEASURED LIVE (2026-10-26): the removal left the unit ONE LINE
+  // LONGER - the join went through TStringList.Text, which appends a break
+  // of its own, so the trailing empty element SplitContentLines keeps for
+  // the file's final break became a blank line at the end. The region
+  // between the two neighbours was always right; the END was not.
+  Assert.IsTrue(After.EndsWith('end.'#13#10),
+    'the unit still ends exactly as it did: ' + After.Substring(After.Length - 12).Replace(#13, '<CR>').Replace(#10, '<LF>'));
+  Assert.IsFalse(After.EndsWith('end.'#13#10#13#10),
+    'and NOT with a blank line the removal left behind');
+  Assert.AreEqual(Integer(Length(SplitContentLines(Src)) - 7),
+    Integer(Length(SplitContentLines(After))),
+    'exactly the 7 removed lines (2 doc + declaration, 1 doc + 3 body)');
+
+  // ...and the file's own line break survives: this quick fix must not
+  // turn an LF-only unit into a CRLF one (the whole-file fallback of
+  // ApplyLinesMinimal writes exactly this text).
+  var Lf := Src.Replace(#13#10, #10);
+  Assert.IsTrue(FindRemovablePrivate(Lf, 9, 'Bar', Info), 'the same member, LF only');
+  var AfterLf := RemovePrivateMemberText(Lf, Info);
+  Assert.AreEqual(0, Integer(Pos(#13, AfterLf)), 'no CR was invented');
+  Assert.IsTrue(AfterLf.EndsWith('end.'#10), 'and the final LF is still one');
+
   // the rule on its own, including "there is none"
   var L := SplitContentLines(Src);
   Assert.AreEqual(7, DocCommentStart(L, 9), 'two doc lines above the declaration');

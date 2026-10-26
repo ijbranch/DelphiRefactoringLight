@@ -409,6 +409,17 @@ function PlanMemberInsertion(const ALines: TArray<string>; AClassLine0: Integer;
 
 /// <summary>AContent split into lines (CRLF / LF).</summary>
 function SplitContentLines(const AContent: string): TArray<string>;
+/// <summary>The exact INVERSE of SplitContentLines: joined with the line
+///  break AOLDCONTENT uses and with none of its own, because the trailing
+///  empty element the split keeps for the file's final break produces it.
+///  A TStringList.Text gets both wrong - it appends a break (so the
+///  trailing element becomes a new blank line and every rewrite grows the
+///  file at its end; measured on "Remove unused private", 2026-10-26) and
+///  it joins with sLineBreak, which would turn an LF-only unit into a CRLF
+///  one. Expert.MethodEdit.JoinPlannedLines is this function; the rule
+///  lives here because SplitContentLines does.</summary>
+function JoinContentLines(const ALines: TArray<string>;
+  const AOldContent: string): string;
 /// <summary>0-based line of the 'implementation' keyword, or MaxInt when none.</summary>
 function ImplementationLineOf(const ALines: TArray<string>): Integer;
 /// <summary>S is a routine header: procedure / function / constructor /
@@ -549,6 +560,17 @@ type
 function SplitContentLines(const AContent: string): TArray<string>;
 begin
   Result := AContent.Replace(#13#10, #10).Replace(#13, #10).Split([#10]);
+end;
+
+function JoinContentLines(const ALines: TArray<string>;
+  const AOldContent: string): string;
+var
+  LB: string;
+begin
+  if Pos(#13#10, AOldContent) > 0 then LB := #13#10
+  else if Pos(#10, AOldContent) > 0 then LB := #10
+  else LB := sLineBreak;
+  Result := string.Join(LB, ALines);
 end;
 
 // 0-based line index of the 'implementation' keyword, or MaxInt if none.
@@ -3480,7 +3502,10 @@ begin
         and (Trim(Lines[I]) = '') then Continue;
       SL.Add(Lines[I]);
     end;
-    Result := SL.Text;
+    // NOT SL.Text: it would add a line break of its own, and the trailing
+    // empty element SplitContentLines keeps for the file's final break then
+    // becomes a new blank line at the end of the unit (measured).
+    Result := JoinContentLines(SL.ToStringArray, AContent);
   finally
     SL.Free;
   end;
@@ -3552,17 +3577,10 @@ var
   Lines: TArray<string>;
 
   // The exact inverse of SplitContentLines - a trailing empty element IS
-  // the file's final line break, so nothing is added and nothing is lost
-  // (a TStringList.Text here silently appended one, and the preview then
-  // reported a changed line at the end of every fix).
+  // the file's final line break, so nothing is added and nothing is lost.
   function Joined: string;
-  var
-    LB: string;
   begin
-    if Pos(#13#10, AContent) > 0 then LB := #13#10
-    else if Pos(#10, AContent) > 0 then LB := #10
-    else LB := sLineBreak;
-    Result := string.Join(LB, Lines);
+    Result := JoinContentLines(Lines, AContent);
   end;
 
   function ReplaceToken(ALine0, ACol0, ALen: Integer; const ANew: string): Boolean;

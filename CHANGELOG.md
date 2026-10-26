@@ -6,6 +6,27 @@ development builds and were never released.
 
 ---
 
+## 2.6.7 - 2026-10-26
+
+### "Remove unused private" grew the unit by a blank line
+
+Found by running the fix of 2.6.4 on a real unit: the member and both its
+documentation blocks went, the two neighbours kept exactly one blank line
+between them - and the unit had one line more than before, at its very end.
+
+The removal joined its lines through a `TStringList`, which appends a line
+break of its own; the empty element that stands for the file's own final
+break then became a new blank line. Every removal added one. The same join
+also used the system line break, so the whole-file path would have rewritten
+an LF-only unit as CRLF - exactly what the line-ending check exists to
+prevent.
+
+That rule already existed twice in this plugin (the method move has it, and
+a copy sat forty lines below the defect in the same unit). It has one home
+now, next to the split it inverts, and the two copies use it.
+
+---
+
 ## 2.6.6 - 2026-10-26
 
 ### Extract Method: a member is not something the block needs
