@@ -2008,7 +2008,7 @@ const
 begin
   // The reported case: the unit IS analysed (hover answers), only this
   // position is unresolved.
-  var Pos_ := LspEmptyAnswerNote(Mine, F, -1, True, True);
+  var Pos_ := LspEmptyAnswerNote(Mine, '', F, -1, True, True, True);
   Assert.AreEqual(1, Occurrences(Pos_, 'DelphiLSP returned nothing'),
     'the sentence is said ONCE, not by the prefix AND the generic text: ' +
     Pos_);
@@ -2028,7 +2028,7 @@ begin
 
   // The other half: nothing of the unit was ever analysed. THERE the .dcu
   // is the usual cause, and that is where the recipe belongs.
-  var Silent := LspEmptyAnswerNote('', F, -1, False, True);
+  var Silent := LspEmptyAnswerNote('', '', F, -1, False, True, True);
   Assert.IsTrue(Silent.StartsWith('DelphiLSP returned nothing'),
     'without a prefix the note says it itself: ' + Silent);
   Assert.IsTrue(Silent.Contains('.dcu'), 'the usual cause: ' + Silent);
@@ -2042,9 +2042,39 @@ begin
     'but not the overload story, which is about a unit that IS analysed: ' +
     Silent);
 
+  // #50.5: four tools passed their DESCRIPTION where the empty-answer
+  // sentence belongs, so the one thing the note exists to say was gone and
+  // the paragraph about resolving a symbol followed a sentence about
+  // ranges. Both halves are their own parameter now.
+  const Desc = 'raw LSP DocumentSymbol[] - ranges are 0-based.';
+  var Syms := LspEmptyAnswerNote('DelphiLSP returned no symbols for this unit.',
+    Desc, F, -1, True, False, False);
+  Assert.IsTrue(Syms.StartsWith('DelphiLSP returned no symbols'),
+    'what an empty answer MEANS comes first: ' + Syms);
+  Assert.IsTrue(Syms.Contains(Desc),
+    'and the description is kept beside it, not instead of it: ' + Syms);
+  Assert.IsFalse(Syms.Contains('RSS-5463'),
+    'document symbols resolve no symbol - that lead would be wrong here: ' + Syms);
+  Assert.IsFalse(Syms.Contains('find_original_symbol'), 'nor that one');
+  Assert.IsTrue(Syms.Contains('server''s own answer'),
+    'it says what an analysed unit means instead: ' + Syms);
+
+  // ...while a tool that DOES resolve a position keeps the diagnosis - and
+  // lsp_implementation still does not point at the index, because having
+  // no implementation is its normal answer.
+  var Impl := LspEmptyAnswerNote('DelphiLSP returned no implementation for '
+    + 'this position - for a method that neither overrides nor implements '
+    + 'one that is the normal answer.', 'x', F, -1, True, False, True);
+  Assert.IsTrue(Impl.StartsWith('DelphiLSP returned no implementation'),
+    'the normal case is stated first: ' + Impl);
+  Assert.IsTrue(Impl.Contains('RSS-5463'),
+    'the diagnosis stays where a position IS resolved: ' + Impl);
+  Assert.IsFalse(Impl.Contains('find_original_symbol'),
+    'but it is not the answer to "there is no implementation": ' + Impl);
+
   // A file we have just sent is simply not ready yet - that comes first,
   // before any cause at all.
-  var Fresh := LspEmptyAnswerNote(Mine, F, 2500, False, False);
+  var Fresh := LspEmptyAnswerNote(Mine, '', F, 2500, False, False, True);
   Assert.IsTrue(Fresh.Contains('2 s ago'), 'how long ago, in seconds: ' + Fresh);
   Assert.IsTrue(Fresh.Contains('Expert.LspManager.pas'),
     'and which file: ' + Fresh);

@@ -87,7 +87,8 @@ uses
   Expert.EventGen in '..\Source\Expert.EventGen.pas',
   Test.UnusedUnits in 'Test.UnusedUnits.pas',
   Test.ExtractInterface in 'Test.ExtractInterface.pas',
-  Test.EventGenPlan in 'Test.EventGenPlan.pas';
+  Test.EventGenPlan in 'Test.EventGenPlan.pas',
+  Test.ParameterRename in 'Test.ParameterRename.pas';
 
 var
   Runner: ITestRunner;

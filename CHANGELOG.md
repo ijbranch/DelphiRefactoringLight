@@ -6,6 +6,60 @@ development builds and were never released.
 
 ---
 
+## 2.6.8 - 2026-10-26
+
+### A parameter is declared at two POSITIONS, and only one pair of them
+
+Issue #50, an audit of the parameter pairing 2.6.1 had just shipped. Five
+points, and the first four are the same mistake seen from four sides: a
+parameter was looked for by NAME and on LINES, where it really stands at two
+positions in two headers that have to be the same routine.
+
+What that produced, each case measured against the compiler:
+
+- two overloads sharing a parameter name paired crosswise, so renaming
+  `Init(const Title: string)` renamed the `Title` of `Init(const Title:
+  string; X: Integer)` as well - and from a declaration the FIRST
+  implementation of that name was taken, whichever it was;
+- a nested routine paired with an interface declaration of the same name,
+  i.e. with a routine in another type entirely;
+- where the pairing could not be established the rename went ahead with one
+  header, which does not compile (E2037, plus an undeclared identifier for
+  every use in the body). Six shapes reached that: a class declared in the
+  implementation section, a nested type, a `{ }` comment inside the
+  parameter list, a header longer than twelve lines, a `const [ref]`
+  parameter, and a `class operator`;
+- and the targets were whole LINES, so a parameter named like its own
+  routine renamed the routine name too, a type or a default value spelled
+  like the parameter counted as the parameter, and the owner-type scan -
+  which exists to reach a method's overrides - ran with the parameter's name
+  and could rename a same-named parameter of a descendant.
+
+A parameter rename is therefore planned as a whole now: both headers are
+read with their real parameter lists, they pair only when those lists agree
+in names, modifiers and types, exactly one candidate has to fit, and every
+renamed place is a position inside a parameter list - never a line. A
+routine that is declared once by design (an interface or dispinterface
+member, `abstract`, `external`, a nested routine) is recognised as such
+instead of being paired with something; anything else that cannot be
+established REFUSES the rename and says why.
+
+### An empty answer lost the one thing it exists to say
+
+The fifth point, and it is older: 2.1.1 let a tool phrase the empty answer
+in its own words, and four tools then passed their DESCRIPTION there. So
+`lsp_implementation`, `lsp_document_symbols`, `lsp_signature_help` and
+`lsp_completion` never said that nothing came back, and the paragraph about
+an unresolved symbol followed a sentence about ranges.
+
+The two are separate now - what an empty answer MEANS for this tool, and
+what the answer is - and the symbol diagnosis only goes to the tools that
+resolve a position. `lsp_implementation` no longer points at
+`find_original_symbol` either: having no implementation is its normal
+answer.
+
+---
+
 ## 2.6.7 - 2026-10-26
 
 ### "Remove unused private" grew the unit by a blank line
