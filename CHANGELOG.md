@@ -6,6 +6,38 @@ development builds and were never released.
 
 ---
 
+## 2.6.6 - 2026-10-26
+
+### Extract Method: a member is not something the block needs
+
+Two reports from the same method: the extracted routine was given a
+parameter for `AWorkSheet.Cell` and none for the `LineStr` it really uses,
+and it declared a local `AsFloat: string` that nothing reads - `AsFloat`
+being a `Double` property of a cell.
+
+Both start in the same place: the block's identifiers were collected with
+every name the text holds, the MEMBER after a dot included. For
+`AWorkSheet.Cell['A' + LineStr].AsString` that is `Cell` and `AsString` as
+well - names that belong to a type and that the new routine can never be
+given. Each one costs a DelphiLSP round trip, and wherever the answer does
+not place it safely, such a name ends up as a parameter or as a local of
+the new routine. A member is skipped now, as the scan that looks for uses
+OUTSIDE the block has always done. A range (`cA..cZ`) is not a member
+access, and a name that is a member here and a variable three characters
+on is still found - at the right place.
+
+### ...and the selection's columns are the ones in the file
+
+`IOTAEditBlock` reports DISPLAY columns - a tab counts as its width on
+screen - while everything that works with a selection uses them as
+positions in the text. On a tab-indented file that shifts every position
+of the selection's FIRST line, so Extract Method asked DelphiLSP about
+whatever stood there instead. The conversion the completion popup already
+uses is applied to a selection now; on a line without a tab nothing changes at
+all.
+
+---
+
 ## 2.6.5 - 2026-10-21
 
 ### The install on a machine where Delphi belongs to another account

@@ -615,6 +615,13 @@ type
     ///  was read as ONE identifier after the colon. And what a local may
     ///  be written as, a parameter may not.</summary>
     [Test] procedure AWrittenOutTypeIsTheWholeType;
+    /// <summary>Forum #226/#227: the extracted method was given a
+    ///  parameter for "AWorkSheet.Cell" and none for LineStr, and it
+    ///  declared a local "AsFloat: string" that nothing uses. Every
+    ///  identifier of the block was asked about, the MEMBER after a dot
+    ///  included - and a member belongs to a type, never to the block's
+    ///  surroundings.</summary>
+    [Test] procedure AMemberIsNoFreeIdentifierOfTheBlock;
     /// <summary>Forum 2026-10-03: the generated CALL must stand where the
     ///  extracted code stood. The selection cannot say that - a drag that
     ///  starts at the first statement carries no leading whitespace, and
@@ -4977,6 +4984,58 @@ begin
   // An expression that is not an identifier keeps working.
   Assert.IsTrue(CodeOccurrenceOf('  X := A + B;', 'A + B', 0) > 0,
     'a composed expression');
+end;
+
+procedure TExtractAndCompletionTests.AMemberIsNoFreeIdentifierOfTheBlock;
+
+  function NamesOf(const ABlock: string): string;
+  begin
+    Result := '|';
+    for var T in ExtractBlockTokens(ABlock, 10, 1) do
+      Result := Result + T.Ident + '|';
+  end;
+
+begin
+  // the reporter's line, verbatim
+  var Names := NamesOf(
+    'AWorkSheet.Cell[''A'' + LineStr].AsString := RemoveAcceleratorKey(FFieldName.AsString);'#10 +
+    'AWorkSheet.Cell[''B'' + LineStr].AsFloat := Total;');
+
+  // what the block really needs from around it
+  Assert.IsTrue(Names.Contains('|AWorkSheet|'), 'the sheet: ' + Names);
+  Assert.IsTrue(Names.Contains('|LineStr|'),
+    'the local the reported method was NOT given: ' + Names);
+  Assert.IsTrue(Names.Contains('|RemoveAcceleratorKey|'), 'a routine it calls');
+  Assert.IsTrue(Names.Contains('|FFieldName|'), 'a field it reads');
+  Assert.IsTrue(Names.Contains('|Total|'), 'and the one on the right');
+
+  // ...and what belongs to a type rather than to the block
+  Assert.IsFalse(Names.Contains('|Cell|'),
+    'the indexed property became a parameter: ' + Names);
+  Assert.IsFalse(Names.Contains('|AsString|'), 'a property of the cell');
+  Assert.IsFalse(Names.Contains('|AsFloat|'),
+    'the reported "var AsFloat: string;" that nothing uses');
+
+  // A name that is a MEMBER here and a free identifier three characters on
+  // must still be found - and at the FREE occurrence, or the LSP is asked
+  // about the member again.
+  var Toks := ExtractBlockTokens('Foo.Value := Value;', 10, 1);
+  var Col := -1;
+  for var T in Toks do
+    if SameText(T.Ident, 'Value') then Col := T.Col0;
+  Assert.AreEqual(13, Col, 'the second Value, not the member at column 5');
+
+  // A RANGE is no member access: "cA..cZ" are two free identifiers.
+  Names := NamesOf('if C in [cA..cZ] then Hit := True;');
+  Assert.IsTrue(Names.Contains('|cA|') and Names.Contains('|cZ|'),
+    'a range is not a member access: ' + Names);
+
+  // A qualified unit reference keeps its first part only - that one is
+  // classified as a unit and dropped, the rest never costs a request.
+  Names := NamesOf('System.SysUtils.Trim(S);');
+  Assert.IsTrue(Names.Contains('|System|'), 'the first part: ' + Names);
+  Assert.IsFalse(Names.Contains('|SysUtils|') or Names.Contains('|Trim|'),
+    'what follows a dot is no free identifier: ' + Names);
 end;
 
 procedure TExtractAndCompletionTests.AWrittenOutTypeIsTheWholeType;

@@ -146,7 +146,7 @@ function ExtractMethodHeadless(const AFile: string; AFromLine1, AToLine1: Intege
   const AMethodName: string; AApply: Boolean; out APreview: TExtractMethodPreview;
   out AError: string): Boolean;
 
-/// <summary>The first occurrence of every identifier of ASelectedText
+/// <summary>The first occurrence of every FREE identifier of ASelectedText
 ///  (lines separated by LF) with its position in the FILE. The first line
 ///  of the selection starts at the 1-based column AStartCol, so its columns
 ///  are offset by AStartCol-1 - for a selection that starts mid-line the
@@ -1816,6 +1816,21 @@ begin
   end;
 end;
 
+// True when the identifier starting at the 1-based APos is the MEMBER of
+// something: "AWorkSheet.Cell" names one variable, and Cell belongs to its
+// type. A RANGE is not a member access - in "cA..cZ" the cZ is a free
+// identifier - so a second dot in front cancels it.
+function IsMemberAccessAt(const ALine: string; APos: Integer): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  I := APos - 1;
+  while (I >= 1) and CharInSet(ALine[I], [' ', #9]) do Dec(I);
+  if (I < 1) or (ALine[I] <> '.') then Exit;
+  Result := (I = 1) or (ALine[I - 1] <> '.');
+end;
+
 function ExtractBlockTokens(const ASelectedText: string;
   AStartLine, AStartCol: Integer): TArray<TExtractToken>;
 var
@@ -1839,6 +1854,18 @@ begin
         if Seen.ContainsKey(UI) then Continue;
         // Skip Pascal keywords (cost LSP time, yield nothing)
         if TExtractMethodHelper.IsPascalKeyword(UI) then Continue;
+        // A MEMBER is not a free identifier. "AWorkSheet.Cell['A' +
+        // LineStr].AsString" needs AWorkSheet and LineStr from outside;
+        // Cell and AsString belong to their types and the new routine can
+        // never be given them. Asking about each costs an LSP round trip,
+        // and where the answer does not place one safely the chain below
+        // ends at its fall-through - which makes it a PARAMETER (forum
+        // #226), or, with a type from elsewhere, a local nothing uses
+        // (#227: "var AsFloat: string;"). The sibling scan has applied
+        // this rule all along (IdentUsedOutsideBlock).
+        // BEFORE Seen: a name that is a member HERE may be a free
+        // identifier three characters further on ("Foo.Value := Value").
+        if IsMemberAccessAt(Line, M.Index) then Continue;
         // Skip tokens inside string/comment
         if TExtractMethodHelper.IsInsideStringOrComment(Line, M.Index) then Continue;
         Seen.Add(UI, True);
