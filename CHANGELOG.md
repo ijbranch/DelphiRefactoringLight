@@ -6,6 +6,30 @@ development builds and were never released.
 
 ---
 
+## 2.6.10 - 2026-10-26
+
+### Extract Method refused two things the compiler accepts
+
+Issue #51 by Ian Branch, both of them in the parameter-type check 2.6.3
+added, and both measured with dcc32 37.0 before anything was changed.
+
+A parameter the block uses but that comes from the **enclosing routine's
+own header** was refused when its type is written out in place - the
+reported case is `const A: array of Integer`. That parameter already *is*
+an open array, and forwarding its declaration verbatim compiles and means
+the same thing. What 2.6.3 was built for stays refused: a **local**
+dynamic array promoted to a parameter really does lose `SetLength`
+(E2008), which the same probe confirms.
+
+And a type name is a name by the language's rule, not by an ASCII set:
+`TKündigung`, `Verträge.TÄnderung` and the escaped `&Type` are legal type
+names, compile as parameter types, and were read as "written out in place".
+
+Both refused rather than wrote wrong code, so they cost an extraction, not
+a unit.
+
+---
+
 ## 2.6.9 - 2026-10-26
 
 ### A build that failed does not get its artefacts installed

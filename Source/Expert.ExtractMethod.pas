@@ -226,6 +226,21 @@ function TypeTextFromHover(const AHoverText: string): string;
 ///  E2008), so it does not count as named either.</summary>
 function TypeIsNamed(const ATypeText: string): Boolean;
 
+/// <summary>Whether a parameter of the extracted routine has to be REFUSED
+///  because of its type. Everything a declaration can write out in place
+///  (an anonymous array, a set, a procedural type, a short string, a
+///  pointer) is legal for a local variable - those MOVE and keep their
+///  text - and is E2029 in a parameter list; "array of T" compiles there
+///  but as an OPEN array, so a local dynamic array promoted to a parameter
+///  would silently lose SetLength (E2008). All measured with dcc32 37.0.
+///
+///  AFORWARDED is the exemption (issue #51): a parameter that comes from
+///  the enclosing routine's own header already IS what its declaration
+///  says, so forwarding that declaration verbatim changes nothing and
+///  compiles - which is why the type alone cannot decide this.</summary>
+function ParamTypeRefusesExtraction(const ATypeName: string;
+  AForwarded: Boolean): Boolean;
+
 function PlanLocalVarRemoval(const AFileLines: TArray<string>; AHeaderLine: Integer;
   const ANames: TArray<string>): TArray<TPair<Integer, string>>;
 
@@ -474,18 +489,46 @@ begin
     Result := Trim(Copy(Result, 1, Length(Result) - 1));
 end;
 
+function ParamTypeRefusesExtraction(const ATypeName: string;
+  AForwarded: Boolean): Boolean;
+begin
+  Result := (ATypeName <> '') and not AForwarded and not TypeIsNamed(ATypeName);
+end;
+
 function TypeIsNamed(const ATypeText: string): Boolean;
 var
+  S: string;
   I, Depth: Integer;
+
+  /// <summary>One dotted part of the name, by the LANGUAGE's identifier
+  ///  rule rather than an ASCII set: "TKuendigung" with an umlaut and the
+  ///  &-escaped "&Type" are legal type names and compile as a parameter
+  ///  type (measured, dcc32 37.0 - issue #51). The ASCII-only set this
+  ///  used to test read them as written out in place and refused the
+  ///  whole extraction. Same rule the completion path learned in the
+  ///  audit's L7o.</summary>
+  function TakeNamePart: Boolean;
+  begin
+    Result := False;
+    if (I <= Length(S)) and (S[I] = '&') then
+      Inc(I);                             // an escaped reserved word
+    if (I > Length(S)) or not IsIdentStart(S[I]) then Exit;
+    while (I <= Length(S)) and IsIdentChar(S[I]) do
+      Inc(I);
+    Result := True;
+  end;
+
 begin
   Result := False;
-  var S := Trim(ATypeText);
+  S := Trim(ATypeText);
   if S = '' then Exit;
-  if not CharInSet(S[1], ['A'..'Z', 'a'..'z', '_']) then Exit;
   I := 1;
-  while (I <= Length(S)) and
-        CharInSet(S[I], ['A'..'Z', 'a'..'z', '0'..'9', '_', '.']) do
+  if not TakeNamePart then Exit;
+  while (I <= Length(S)) and (S[I] = '.') do
+  begin
     Inc(I);
+    if not TakeNamePart then Exit;
+  end;
   if I > Length(S) then Exit(True);       // a plain (dotted) name
   if S[I] <> '<' then Exit;               // "array of ...", "set of ..."
   Depth := 0;                             // generic arguments close it
@@ -1472,9 +1515,17 @@ begin
     // list; measured with dcc32 37.0. "array of T" compiles there but
     // means an OPEN array, not the dynamic array it came from, so it is
     // refused as well instead of silently changing what the code does.
+    //
+    // ...EXCEPT where the parameter is FORWARDED from the enclosing
+    // header (issue #51): such a parameter already IS what its own
+    // declaration says, so repeating that declaration verbatim changes
+    // nothing. Measured: "const A: array of Integer" and its var form
+    // forward and compile, while SetLength on one is E2008 either way -
+    // so the refusal still catches the case it was written for, a LOCAL
+    // dynamic array that would become an open array by being promoted.
     for var PIdx := 0 to High(AInfo.Params) do
-      if (AInfo.Params[PIdx].TypeName <> '') and
-         not TypeIsNamed(AInfo.Params[PIdx].TypeName) then
+      if ParamTypeRefusesExtraction(AInfo.Params[PIdx].TypeName,
+           AInfo.Params[PIdx].IsForwardedEnclosingParam) then
       begin
         var Why := 'which Delphi does not allow in a parameter list';
         if AInfo.Params[PIdx].TypeName.ToLower.StartsWith('array of ') then

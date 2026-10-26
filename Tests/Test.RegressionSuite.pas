@@ -5127,6 +5127,39 @@ begin
   Assert.IsFalse(TypeIsNamed('procedure(X: Integer) of object'));
   Assert.IsFalse(TypeIsNamed('record X: Integer; end'));
   Assert.IsFalse(TypeIsNamed(''), 'nothing is no name');
+
+  // Issue #51: a name is a name by the LANGUAGE's rule, not by an ASCII
+  // set. All three of these compile as a parameter type (measured,
+  // dcc32 37.0 - scratchpad issue51/probe.py), so reading them as
+  // "written out in place" refused an extraction for nothing.
+  Assert.IsTrue(TypeIsNamed('TK' + #$00FC + 'ndigung'),
+    'a non-ASCII letter is a letter');
+  Assert.IsTrue(TypeIsNamed('Vertr' + #$00E4 + 'ge.T' + #$00C4 + 'nderung'),
+    'in every dotted part');
+  Assert.IsTrue(TypeIsNamed('&Type'), 'an escaped reserved word is a name');
+  Assert.IsTrue(TypeIsNamed('Unit1.&Type'), 'qualified as well');
+  Assert.IsTrue(TypeIsNamed('TList<TK' + #$00FC + 'ndigung>'),
+    'and as a generic argument');
+  // ...and what must stay refused: a name is not a sentence.
+  Assert.IsFalse(TypeIsNamed('&'), 'an escape with nothing behind it');
+  Assert.IsFalse(TypeIsNamed('A.'), 'a trailing dot is no part');
+  Assert.IsFalse(TypeIsNamed('array of TK' + #$00FC + 'ndigung'),
+    'the umlaut does not make an open array a name');
+  Assert.IsFalse(TypeIsNamed('1Foo'), 'a digit cannot start one');
+
+  // And the rule the type alone cannot decide (issue #51): a parameter
+  // FORWARDED from the enclosing header already is what its declaration
+  // says, so repeating it verbatim compiles - measured for const and var.
+  // A local dynamic array promoted to a parameter is still refused: there
+  // the declaration would change what the code means (E2008 on SetLength).
+  Assert.IsTrue(ParamTypeRefusesExtraction('array of Integer', False),
+    'a local that would BECOME an open array');
+  Assert.IsFalse(ParamTypeRefusesExtraction('array of Integer', True),
+    'but a forwarded open array is one already - the reported case');
+  Assert.IsFalse(ParamTypeRefusesExtraction('Integer', False),
+    'a named type never refuses');
+  Assert.IsFalse(ParamTypeRefusesExtraction('', False),
+    'and an unknown type is not a refusal either');
 end;
 
 procedure TExtractAndCompletionTests.LinesAreSplitOnEveryLineBreakStyle;
