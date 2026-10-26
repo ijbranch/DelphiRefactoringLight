@@ -7477,9 +7477,10 @@ end;
 
 procedure TInstallOutputRootTests.AFileInUseIsMovedAsideAndReplaced;
 var
-  Dir, Target, Source, Aside: string;
+  Dir, Target, Source, Aside, Stamp, DayBefore, DayAfter: string;
   H: THandle;
   Failed: Boolean;
+  P: Integer;
 begin
   Dir := TPath.Combine(TPath.GetTempPath, 'dih_inuse_' + TGUID.NewGuid.ToString);
   TDirectory.CreateDirectory(Dir);
@@ -7507,8 +7508,10 @@ begin
       end;
       Assert.IsTrue(Failed, 'a file in use cannot simply be overwritten');
 
+      DayBefore := FormatDateTime('yyyymmdd', Now);
       Assert.IsTrue(ReplaceFilePossiblyInUse(Source, Target, Aside),
         'but it can be replaced');
+      DayAfter := FormatDateTime('yyyymmdd', Now);
       Assert.AreEqual('NEW', TFile.ReadAllText(Target), False,
         'the new bytes are in place');
       Assert.IsTrue(Aside <> '', 'and the old file was moved aside');
@@ -7519,6 +7522,27 @@ begin
       // was started from it last time, and then the move has nowhere to go.
       Assert.AreNotEqual(Target + '.old', Aside, False,
         'a fixed aside name is what blocked the next install');
+
+      // ...and unique ACROSS PROCESSES, which is the half that was wrong:
+      // Random without Randomize starts every process at the same first
+      // value, so every install walked the same collisions. A timestamp
+      // does not. 17 digits (yyyymmddhhnnsszzz) plus the try counter - a
+      // 6-digit random number fails both of these.
+      P := Aside.LastDelimiter('.');
+      Stamp := Aside.Substring(0, P);           // drop ".old"
+      Stamp := Stamp.Substring(Stamp.LastDelimiter('.') + 1);
+      Assert.IsTrue(Stamp.Length >= 17,
+        'the aside name carries a timestamp, not a 6-digit random: ' + Aside);
+      Assert.IsTrue(Stamp.StartsWith(DayBefore) or Stamp.StartsWith(DayAfter),
+        'and it is TODAY''s timestamp: ' + Aside);
+
+      // The shape is a CONTRACT, not a taste. Since 1.30.1 the installer
+      // writes the MCP bridge's aside copy, and this is the function that
+      // reads it back - it tells "the install replaced the exe under this
+      // process" (start a new session) from "the install never finished"
+      // (run install.cmd). The two ends have to agree.
+      Assert.AreEqual(Target, CanonicalBridgeExePath(Aside), False,
+        'the consumer must recognise the name the installer writes');
     finally
       CloseHandle(H);
     end;

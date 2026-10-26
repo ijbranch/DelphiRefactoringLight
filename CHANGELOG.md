@@ -6,6 +6,43 @@ development builds and were never released.
 
 ---
 
+## 2.6.9 - 2026-10-26
+
+### A build that failed does not get its artefacts installed
+
+Found while reviewing the installer helper before porting it upstream, by
+three of four review dimensions independently.
+
+Since 1.30.1 the installer copies a file the build it just ran PRODUCED -
+that is how the MCP bridge reaches its install folder. The build's result
+was discarded, though, so a compile error left the previous build's exe
+being copied over the target and logged as "Build artefacts installed: 1",
+with the entry's post event then verifying the old binary. That is exactly
+the stale-binary class of bug the staged copy was added to prevent, and it
+had a nine-day and a four-version precedent in this plugin's own history.
+
+The copy now happens only when the build succeeded, and when it did not,
+the log says how many artefacts were NOT installed and that the target
+keeps the file it had. A copy pass in which every file failed no longer
+writes a green success line either.
+
+### The name an install moves a running file aside under
+
+It promised to be unique and was not: it came from `Random` without
+`Randomize`, so every process started at the same first value and every
+install walked the same collisions - and after twenty tries the loop left
+with a name that exists, where the rename then failed with a message about
+a destination nobody had asked for. It is a timestamp now, and a name that
+is still taken is refused with its reason.
+
+The shape has a consumer: since 1.30.1 the installer writes the bridge's
+aside copy, and `CanonicalBridgeExePath` reads it back to tell "the install
+replaced the exe under this running session" from "the install never
+finished" - two situations that need opposite advice. A test now holds
+those two ends together.
+
+---
+
 ## 2.6.8 - 2026-10-26
 
 ### A parameter is declared at two POSITIONS, and only one pair of them
